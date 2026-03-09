@@ -1,12 +1,248 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState, useCallback } from "react";
+import {
+  parseCSV,
+  runFraudDetection,
+  FraudResult,
+  AccountFlag,
+  SimpleTransaction,
+  isSimpleFormat,
+  generateSyntheticTransactions,
+  toISOTimestamp,
+} from "@/lib/fraudEngine";
+import { StatsBar } from "@/components/StatsBar";
+import { ResultsTable } from "@/components/ResultsTable";
+import { JsonViewer } from "@/components/JsonViewer";
+import { InputJsonViewer } from "@/components/InputJsonViewer";
+import { AccountFlagsPanel } from "@/components/AccountFlagsPanel";
+import { RuleBreakdownChart } from "@/components/RuleBreakdownChart";
+import { Shield, Upload, Loader2, Home, Play, Database } from "lucide-react";
+
+const EXAMPLE_DATA: SimpleTransaction[] = [
+  { accountId: "A1", amount: 20000, timestamp: "2026-02-19T10:00:00", city: "Delhi" },
+  { accountId: "A1", amount: 15000, timestamp: "2026-02-19T10:00:30", city: "Delhi" },
+  { accountId: "A1", amount: 20000, timestamp: "2026-02-19T10:01:00", city: "Mumbai" },
+];
 
 const Index = () => {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
+  const [results, setResults] = useState<FraudResult[]>([]);
+  const [accountFlags, setAccountFlags] = useState<AccountFlag[]>([]);
+  const [ruleBreakdown, setRuleBreakdown] = useState<Record<string, number>>({});
+  const [inputJson, setInputJson] = useState<SimpleTransaction[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [showHome, setShowHome] = useState(true);
+  const [activeTab, setActiveTab] = useState<"table" | "json" | "input" | "accounts" | "chart">("table");
+
+  const processData = useCallback((transactions: SimpleTransaction[]) => {
+    setLoading(true);
+    setInputJson(transactions);
+    setShowHome(false);
+    setTimeout(() => {
+      const { results: r, accountFlags: af, ruleBreakdown: rb } = runFraudDetection(transactions);
+      setResults(r);
+      setAccountFlags(af);
+      setRuleBreakdown(rb);
+      setLoading(false);
+      setLoaded(true);
+    }, 100);
+  }, []);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      if (file.name.endsWith(".json")) {
+        try {
+          const data = JSON.parse(text);
+          if (Array.isArray(data)) {
+            if (isSimpleFormat(data)) {
+              // Auto-convert timestamps to ISO
+              const txns = data.map((d: any) => ({
+                accountId: d.accountId,
+                amount: parseFloat(d.amount) || 0,
+                timestamp: toISOTimestamp(d.timestamp),
+                city: d.city,
+              }));
+              processData(txns);
+            } else {
+              // Try to map from various formats
+              const txns = data.map((d: any) => ({
+                accountId: d.accountId || d.AccountID || d.account_id || d.account || "UNKNOWN",
+                amount: parseFloat(d.amount || d.TransactionAmount || d.transaction_amount || 0),
+                timestamp: toISOTimestamp(d.timestamp || d.TransactionDate || d.date || ""),
+                city: d.city || d.Location || d.location || "Unknown",
+              }));
+              processData(txns);
+            }
+          }
+        } catch { /* ignore bad JSON */ }
+      } else {
+        // CSV
+        const txns = parseCSV(text);
+        processData(txns);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleRunExample = () => {
+    processData(EXAMPLE_DATA);
+  };
+
+  const handleGenerate10k = () => {
+    const base = EXAMPLE_DATA;
+    const synth = generateSyntheticTransactions(10000 - base.length, base);
+    processData([...base, ...synth]);
+  };
+
+  const handleGoHome = () => {
+    setShowHome(true);
+    setLoaded(false);
+    setResults([]);
+    setAccountFlags([]);
+    setInputJson([]);
+    setRuleBreakdown({});
+  };
+
+  // ===== HOME SCREEN =====
+  if (showHome) {
+    return (
+      <div className="flex flex-col h-screen items-center justify-center p-6 gap-6">
+        <div className="flex items-center gap-3">
+          <Shield className="w-10 h-10 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold text-foreground tracking-tight">FinShield</h1>
+            <p className="text-sm text-muted-foreground">Suspicious Transaction Detection System</p>
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground text-center max-w-md">
+          Analyze transaction data and identify accounts showing suspicious behavior based on 6 predefined fraud detection rules. Supports CSV and JSON input.
+        </p>
+
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <button
+            onClick={handleRunExample}
+            className="flex items-center justify-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-md font-medium text-sm hover:opacity-90 transition-opacity"
+          >
+            <Play className="w-4 h-4" />
+            Run Example Test
+          </button>
+
+          <button
+            onClick={handleGenerate10k}
+            className="flex items-center justify-center gap-2 bg-secondary text-secondary-foreground px-4 py-2.5 rounded-md font-medium text-sm border border-border hover:bg-secondary/80 transition-colors"
+          >
+            <Database className="w-4 h-4" />
+            Generate & Analyze 10,000 Txns
+          </button>
+
+          <label className="flex items-center justify-center gap-2 bg-secondary text-secondary-foreground px-4 py-2.5 rounded-md font-medium text-sm border border-border hover:bg-secondary/80 transition-colors cursor-pointer">
+            <Upload className="w-4 h-4" />
+            Upload CSV / JSON
+            <input type="file" accept=".csv,.json" className="hidden" onChange={handleFileUpload} />
+          </label>
+        </div>
+
+        <div className="mt-4 bg-card border border-border rounded-md p-4 max-w-lg w-full">
+          <h3 className="text-xs font-bold text-foreground mb-2">Detection Rules</h3>
+          <ul className="text-[10px] text-muted-foreground space-y-1">
+            <li>• <span className="text-foreground">R1:</span> High daily transaction amount (&gt; ₹50,000)</li>
+            <li>• <span className="text-foreground">R2:</span> More than 3 transactions within 1 minute</li>
+            <li>• <span className="text-foreground">R3:</span> Transactions from different cities within 30 minutes</li>
+            <li>• <span className="text-foreground">R4:</span> Unusually large single transaction (&gt; ₹40,000)</li>
+            <li>• <span className="text-foreground">R5:</span> More than 10 transactions within 10 minutes</li>
+            <li>• <span className="text-foreground">R6:</span> Repeated identical consecutive transactions</li>
+          </ul>
+        </div>
       </div>
+    );
+  }
+
+  // ===== DASHBOARD =====
+  return (
+    <div className="flex flex-col h-screen p-3 gap-3 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <button onClick={handleGoHome} className="text-muted-foreground hover:text-foreground transition-colors">
+            <Home className="w-4 h-4" />
+          </button>
+          <Shield className="w-5 h-5 text-primary" />
+          <h1 className="text-sm font-bold tracking-tight text-foreground">FinShield — Fraud Detection Dashboard</h1>
+          <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
+            Rule-Based Engine
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRunExample}
+            className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors bg-secondary px-2.5 py-1.5 rounded border border-border"
+          >
+            Run Example
+          </button>
+          <button
+            onClick={handleGenerate10k}
+            className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors bg-secondary px-2.5 py-1.5 rounded border border-border"
+          >
+            10K Txns
+          </button>
+          <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors bg-secondary px-2.5 py-1.5 rounded border border-border">
+            <Upload className="w-3 h-3" />
+            Upload CSV / JSON
+            <input type="file" accept=".csv,.json" className="hidden" onChange={handleFileUpload} />
+          </label>
+        </div>
+      </div>
+
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 text-primary animate-spin" />
+          <span className="ml-2 text-sm text-muted-foreground">Analyzing transactions…</span>
+        </div>
+      )}
+
+      {loaded && !loading && (
+        <>
+          <StatsBar results={results} flaggedCount={accountFlags.length} />
+
+          {/* Tabs */}
+          <div className="flex items-center gap-1 shrink-0">
+            {(["input", "table", "json", "accounts", "chart"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`text-xs px-3 py-1.5 rounded font-medium transition-colors ${
+                  activeTab === tab
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {tab === "input"
+                  ? "Input JSON"
+                  : tab === "table"
+                  ? "Visual Table"
+                  : tab === "json"
+                  ? "Output JSON"
+                  : tab === "accounts"
+                  ? "Flagged Accounts"
+                  : "Rule Analytics"}
+              </button>
+            ))}
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 min-h-0">
+            {activeTab === "input" && <InputJsonViewer data={inputJson} />}
+            {activeTab === "table" && <ResultsTable results={results} />}
+            {activeTab === "json" && <JsonViewer flags={accountFlags} />}
+            {activeTab === "accounts" && <AccountFlagsPanel flags={accountFlags} />}
+            {activeTab === "chart" && <RuleBreakdownChart ruleBreakdown={ruleBreakdown} />}
+          </div>
+        </>
+      )}
     </div>
   );
 };
