@@ -10,18 +10,16 @@ export const StatsBar = ({ results, flaggedCount }: StatsBarProps) => {
   const total = results.length;
   const flaggedTxns = results.filter((r) => r.ruleReasons.length > 0).length;
   const uniqueAccounts = new Set(results.map((r) => r.accountId)).size;
-  const totalRuleViolations = results.reduce((sum, r) => sum + r.ruleReasons.length, 0);
 
   const stats = [
     { label: "Total Transactions", value: total.toLocaleString(), icon: FileText, color: "text-primary" },
     { label: "Unique Accounts", value: uniqueAccounts.toLocaleString(), icon: Users, color: "text-accent" },
-    { label: "Flagged Accounts", value: flaggedCount.toLocaleString(), icon: AlertTriangle, color: "text-risk-high" },
+    { label: "Flagged Accounts", value: flaggedCount.toLocaleString(), icon: AlertTriangle, color: "text-destructive" },
     { label: "Suspicious Txns", value: flaggedTxns.toLocaleString(), icon: Shield, color: "text-risk-medium" },
-    { label: "Rule Violations", value: totalRuleViolations.toLocaleString(), icon: AlertTriangle, color: "text-tag-rule" },
   ];
 
   return (
-    <div className="grid grid-cols-5 gap-2 shrink-0">
+    <div className="grid grid-cols-4 gap-2 shrink-0">
       {stats.map((s) => (
         <div key={s.label} className="bg-card border border-border rounded-md px-3 py-2 flex items-center gap-2">
           <s.icon className={`w-4 h-4 ${s.color}`} />
