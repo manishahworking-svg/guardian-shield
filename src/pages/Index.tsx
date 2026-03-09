@@ -47,54 +47,48 @@ const Index = () => {
     }, 100);
   }, []);
 
+  const parseJsonInput = (data: any[]): SimpleTransaction[] => {
+    if (isSimpleFormat(data)) {
+      return data.map((d: any) => ({
+        accountId: d.accountId,
+        amount: parseFloat(d.amount) || 0,
+        timestamp: toISOTimestamp(d.timestamp),
+        city: d.city,
+      }));
+    }
+    return data.map((d: any) => ({
+      accountId: d.accountId || d.AccountID || d.account_id || d.account || "UNKNOWN",
+      amount: parseFloat(d.amount || d.TransactionAmount || d.transaction_amount || 0),
+      timestamp: toISOTimestamp(d.timestamp || d.TransactionDate || d.date || ""),
+      city: d.city || d.Location || d.location || "Unknown",
+    }));
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
-      if (file.name.endsWith(".json")) {
+      if (file.name.toLowerCase().endsWith(".json")) {
         try {
           const data = JSON.parse(text);
           if (Array.isArray(data)) {
-            if (isSimpleFormat(data)) {
-              // Auto-convert timestamps to ISO
-              const txns = data.map((d: any) => ({
-                accountId: d.accountId,
-                amount: parseFloat(d.amount) || 0,
-                timestamp: toISOTimestamp(d.timestamp),
-                city: d.city,
-              }));
-              processData(txns);
-            } else {
-              // Try to map from various formats
-              const txns = data.map((d: any) => ({
-                accountId: d.accountId || d.AccountID || d.account_id || d.account || "UNKNOWN",
-                amount: parseFloat(d.amount || d.TransactionAmount || d.transaction_amount || 0),
-                timestamp: toISOTimestamp(d.timestamp || d.TransactionDate || d.date || ""),
-                city: d.city || d.Location || d.location || "Unknown",
-              }));
-              processData(txns);
-            }
+            processData(parseJsonInput(data));
           }
-        } catch { /* ignore bad JSON */ }
+        } catch { /* ignore */ }
       } else {
-        // CSV
-        const txns = parseCSV(text);
-        processData(txns);
+        processData(parseCSV(text));
       }
     };
     reader.readAsText(file);
   };
 
-  const handleRunExample = () => {
-    processData(EXAMPLE_DATA);
-  };
+  const handleRunExample = () => processData(EXAMPLE_DATA);
 
   const handleGenerate10k = () => {
-    const base = EXAMPLE_DATA;
-    const synth = generateSyntheticTransactions(10000 - base.length, base);
-    processData([...base, ...synth]);
+    const synth = generateSyntheticTransactions(10000, EXAMPLE_DATA);
+    processData([...EXAMPLE_DATA, ...synth].slice(0, 10000));
   };
 
   const handleGoHome = () => {
@@ -106,7 +100,6 @@ const Index = () => {
     setRuleBreakdown({});
   };
 
-  // ===== HOME SCREEN =====
   if (showHome) {
     return (
       <div className="flex flex-col h-screen items-center justify-center p-6 gap-6">
@@ -119,7 +112,7 @@ const Index = () => {
         </div>
 
         <p className="text-xs text-muted-foreground text-center max-w-md">
-          Analyze transaction data and identify accounts showing suspicious behavior based on 6 predefined fraud detection rules. Supports CSV and JSON input.
+          Analyze transaction data and identify accounts showing suspicious behavior based on predefined fraud detection rules. Upload CSV or JSON files to begin.
         </p>
 
         <div className="flex flex-col gap-3 w-full max-w-xs">
@@ -149,44 +142,41 @@ const Index = () => {
         <div className="mt-4 bg-card border border-border rounded-md p-4 max-w-lg w-full">
           <h3 className="text-xs font-bold text-foreground mb-2">Detection Rules</h3>
           <ul className="text-[10px] text-muted-foreground space-y-1">
-            <li>• <span className="text-foreground">R1:</span> High daily transaction amount (&gt; ₹50,000)</li>
-            <li>• <span className="text-foreground">R2:</span> More than 3 transactions within 1 minute</li>
-            <li>• <span className="text-foreground">R3:</span> Transactions from different cities within 30 minutes</li>
-            <li>• <span className="text-foreground">R4:</span> Unusually large single transaction (&gt; ₹40,000)</li>
-            <li>• <span className="text-foreground">R5:</span> More than 10 transactions within 10 minutes</li>
-            <li>• <span className="text-foreground">R6:</span> Repeated identical consecutive transactions</li>
+            <li>• <span className="text-foreground">Rule 1:</span> Total daily transaction amount exceeds ₹50,000</li>
+            <li>• <span className="text-foreground">Rule 2:</span> More than 3 transactions within 1 minute</li>
+            <li>• <span className="text-foreground">Rule 3:</span> Transactions from different cities within 30-minute window</li>
           </ul>
+        </div>
+
+        <div className="bg-card border border-border rounded-md p-4 max-w-lg w-full">
+          <h3 className="text-xs font-bold text-foreground mb-2">Input Format (JSON)</h3>
+          <pre className="text-[10px] font-mono text-muted-foreground whitespace-pre-wrap">
+{`[
+  { "accountId": "A1", "amount": 20000, "timestamp": "2026-02-19T10:00:00", "city": "Delhi" },
+  { "accountId": "A1", "amount": 15000, "timestamp": "2026-02-19T10:00:30", "city": "Delhi" },
+  { "accountId": "A1", "amount": 20000, "timestamp": "2026-02-19T10:01:00", "city": "Mumbai" }
+]`}
+          </pre>
         </div>
       </div>
     );
   }
 
-  // ===== DASHBOARD =====
   return (
     <div className="flex flex-col h-screen p-3 gap-3 overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
-          <button onClick={handleGoHome} className="text-muted-foreground hover:text-foreground transition-colors">
+          <button onClick={handleGoHome} className="text-muted-foreground hover:text-foreground transition-colors" title="Home">
             <Home className="w-4 h-4" />
           </button>
           <Shield className="w-5 h-5 text-primary" />
-          <h1 className="text-sm font-bold tracking-tight text-foreground">FinShield — Fraud Detection Dashboard</h1>
-          <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
-            Rule-Based Engine
-          </span>
+          <h1 className="text-sm font-bold tracking-tight text-foreground">FinShield — Suspicious Transaction Detection</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleRunExample}
-            className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors bg-secondary px-2.5 py-1.5 rounded border border-border"
-          >
+          <button onClick={handleRunExample} className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors bg-secondary px-2.5 py-1.5 rounded border border-border">
             Run Example
           </button>
-          <button
-            onClick={handleGenerate10k}
-            className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors bg-secondary px-2.5 py-1.5 rounded border border-border"
-          >
+          <button onClick={handleGenerate10k} className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors bg-secondary px-2.5 py-1.5 rounded border border-border">
             10K Txns
           </button>
           <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors bg-secondary px-2.5 py-1.5 rounded border border-border">
@@ -208,32 +198,20 @@ const Index = () => {
         <>
           <StatsBar results={results} flaggedCount={accountFlags.length} />
 
-          {/* Tabs */}
           <div className="flex items-center gap-1 shrink-0">
             {(["input", "table", "json", "accounts", "chart"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`text-xs px-3 py-1.5 rounded font-medium transition-colors ${
-                  activeTab === tab
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground hover:text-foreground"
+                  activeTab === tab ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {tab === "input"
-                  ? "Input JSON"
-                  : tab === "table"
-                  ? "Visual Table"
-                  : tab === "json"
-                  ? "Output JSON"
-                  : tab === "accounts"
-                  ? "Flagged Accounts"
-                  : "Rule Analytics"}
+                {tab === "input" ? "Input JSON" : tab === "table" ? "Visual Table" : tab === "json" ? "Output JSON" : tab === "accounts" ? "Flagged Accounts" : "Rule Analytics"}
               </button>
             ))}
           </div>
 
-          {/* Content */}
           <div className="flex-1 min-h-0">
             {activeTab === "input" && <InputJsonViewer data={inputJson} />}
             {activeTab === "table" && <ResultsTable results={results} />}
